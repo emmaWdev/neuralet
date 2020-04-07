@@ -1,10 +1,8 @@
-import pycuda.autoinit  # This is needed for initializing CUDA driver
 
 class Detector():
     def __init__(self, config):
         self.config = config
         self.net = None 
-        self.conf_threshold = self.config.get_section_dict('Detector')['MinScore'] 
         self.name = self.config.get_section_dict('Detector')['Name']
         if self.name == 'ssd_mobilenet_v2_coco' : # or mobilenet_ssd_v1
             from . import MobileNetSSDV2
@@ -15,6 +13,6 @@ class Detector():
     def inference(self, resized_rgb_image):
         # Here should inference on the image, output a list of objects, each obj is a dict with two keys "id" and "bbox" 
         # return [{"id": 0, "bbox": [x, y, w, h]}, {...}, {...}, ...]
-        result = self.net.inference(resized_rgb_image, self.conf_threshold)
+        result = self.net.inference(resized_rgb_image)
         return result
 

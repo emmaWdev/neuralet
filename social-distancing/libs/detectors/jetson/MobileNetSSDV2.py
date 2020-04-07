@@ -1,42 +1,12 @@
 """ssd.py
-
 This module implements the TrtSSD class.
 """
-
-
 import ctypes
 import numpy as np
 import cv2
 import tensorrt as trt
+import pycuda.autoinit  # This is needed for initializing CUDA driver
 import pycuda.driver as cuda
-
-
-def _preprocess_trt(img):
-    """Preprocess an image before TRT SSD inferencing."""
-    img = img.transpose((2, 0, 1)).astype(np.float32)
-    img = (2.0/255.0) * img - 1.0
-    return img
-
-
-def _postprocess_trt(img, output, conf_th, output_layout):
-    """Postprocess TRT SSD output."""
-    img_h, img_w, _ = img.shape
-    boxes, confs, clss = [], [], []
-    for prefix in range(0, len(output), output_layout):
-        #index = int(output[prefix+0])
-        conf = float(output[prefix+2])
-        if conf < float(conf_th):
-            continue
-        x1 = (output[prefix+3])# * img_w)
-        y1 = (output[prefix+4])# * img_h)
-        x2 = (output[prefix+5])# * img_w)
-        y2 = (output[prefix+6])# * img_h)
-        cls = int(output[prefix+1])
-        boxes.append((y1, x1, y2, x2))
-        confs.append(conf)
-        clss.append(cls)
-    return boxes, confs, clss
-
 
 class Detector():
     
@@ -69,6 +39,7 @@ class Detector():
         self.config = config
         self.model = self.config.get_section_dict('Detector')['Name']
         self.class_id = int(self.config.get_section_dict('Detector')['ClassID'])
+        self.conf_threshold = self.config.get_section_dict('Detector')['MinScore']
         self.output_layout = output_layout
         self.trt_logger = trt.Logger(trt.Logger.INFO)
         self._load_plugins()
@@ -88,9 +59,36 @@ class Detector():
         del self.cuda_outputs
         del self.cuda_inputs
 
-    def inference(self, img, conf_th=0.3):
+    def _preprocess_trt(self, img):
+        """Preprocess an image before TRT SSD inferencing."""
+        img = img.transpose((2, 0, 1)).astype(np.float32)
+        img = (2.0/255.0) * img - 1.0
+        return img
+
+
+    def _postprocess_trt(self, img, output):
+        """Postprocess TRT SSD output."""
+        img_h, img_w, _ = img.shape
+        boxes, confs, clss = [], [], []
+        for prefix in range(0, len(output), self.output_layout):
+            #index = int(output[prefix+0])
+            conf = float(output[prefix+2])
+            if conf < float(self.conf_threshold):
+                continue
+            x1 = (output[prefix+3])# * img_w)
+            y1 = (output[prefix+4])# * img_h)
+            x2 = (output[prefix+5])# * img_w)
+            y2 = (output[prefix+6])# * img_h)
+            cls = int(output[prefix+1])
+            boxes.append((y1, x1, y2, x2))
+            confs.append(conf)
+            clss.append(cls)
+        return boxes, confs, clss
+
+
+    def inference(self, img):
         """Detect objects in the input image."""
-        img_resized = _preprocess_trt(img)
+        img_resized = self._preprocess_trt(img)
         np.copyto(self.host_inputs[0], img_resized.ravel())
 
         cuda.memcpy_htod_async(
@@ -106,11 +104,11 @@ class Detector():
         self.stream.synchronize()
 
         output = self.host_outputs[0]
-        boxes, _, clss = _postprocess_trt(img, output, conf_th, self.output_layout)
+        boxes, scores, classes = self._postprocess_trt(img, output)
         result = []
         for i in range(len(boxes)): #number of boxes
-            if clss[i] == self.class_id+1:
-                result.append({"id": str(clss[i]-1) + '-' + str(i), "bbox": boxes[i]})
+            if classes[i] == self.class_id+1:
+                result.append({"id": str(classes[i]-1) + '-' + str(i), "bbox": boxes[i], "score": scores[i]})
 
         return result
 
