@@ -11,7 +11,7 @@ import pycuda.driver as cuda
 class Detector():
     
     def _load_plugins(self):
-        ctypes.CDLL("libs/detectors/jetson/data/libflattenconcat.so")
+        ctypes.CDLL("/opt/libflattenconcat.so")
         trt.init_libnvinfer_plugins(self.trt_logger, '')
 
     def _load_engine(self):
